@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:recording/MyHomePage.dart';
+import 'package:recording/my_home_page.dart';
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
