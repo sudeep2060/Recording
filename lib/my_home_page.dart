@@ -1,6 +1,7 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:gal/gal.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class Homepage extends StatefulWidget {
   const Homepage({super.key});
@@ -13,12 +14,24 @@ class _HomepageState extends State<Homepage> with WidgetsBindingObserver {
   List<CameraDescription> cameras = [];
   CameraController? cameraController;
   bool isRecording = false;
+  bool isBusy = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _setupCameraController();
+    _init();
+  }
+
+  Future<void> _init() async {
+    await _requestPermissions();
+    await _setupCameraController();
+  }
+
+  Future<void> _requestPermissions() async {
+    await Permission.camera.request();
+    await Permission.microphone.request();
+    await Permission.storage.request();
   }
 
   @override
@@ -45,8 +58,7 @@ class _HomepageState extends State<Homepage> with WidgetsBindingObserver {
     final _availableCameras = await availableCameras();
     if (_availableCameras.isNotEmpty) {
       cameraController = CameraController(
-        _availableCameras
-            .last, //use first for front camera other wise use last for back camera
+        _availableCameras.last,
         ResolutionPreset.high,
         enableAudio: true,
       );
@@ -57,6 +69,39 @@ class _HomepageState extends State<Homepage> with WidgetsBindingObserver {
         cameras = _availableCameras;
       });
     }
+  }
+
+  Future<void> _toggleRecording() async {
+    if (cameraController == null || !cameraController!.value.isInitialized) return;
+
+    if (isBusy) return;
+    isBusy = true;
+
+    try {
+      if (isRecording) {
+        XFile videoFile = await cameraController!.stopVideoRecording();
+        setState(() => isRecording = false);
+
+        print('Video saved to: ${videoFile.path}');
+        await Gal.putVideo(videoFile.path);
+        _showSnackbar('Video saved to gallery');
+      } else {
+        await cameraController!.prepareForVideoRecording();
+        await cameraController!.startVideoRecording();
+        setState(() => isRecording = true);
+        _showSnackbar('Recording started...');
+      }
+    } catch (e) {
+      _showSnackbar('Error: ${e.toString()}');
+    } finally {
+      isBusy = false;
+    }
+  }
+
+  void _showSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+    );
   }
 
   Widget _buildUI() {
@@ -79,17 +124,7 @@ class _HomepageState extends State<Homepage> with WidgetsBindingObserver {
               color: isRecording ? Colors.red : Colors.green,
               size: 80,
             ),
-            onPressed: () async {
-              if (isRecording) {
-                XFile videoFile = await cameraController!.stopVideoRecording();
-                print('Video saved to: ${videoFile.path}');
-                Gal.putVideo(videoFile.path);
-                setState(() => isRecording = false);
-              } else {
-                await cameraController!.startVideoRecording();
-                setState(() => isRecording = true);
-              }
-            },
+            onPressed: _toggleRecording,
           ),
         ],
       ),
