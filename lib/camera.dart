@@ -1,6 +1,8 @@
+import 'dart:async';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:gal/gal.dart';
+import 'package:gallery_saver_plus/gallery_saver.dart';
 
 class CameraWork extends StatefulWidget {
   const CameraWork({super.key});
@@ -12,25 +14,64 @@ class CameraWork extends StatefulWidget {
 class _HomepageState extends State<CameraWork> with WidgetsBindingObserver {
   List<CameraDescription> cameras = [];
   CameraController? cameraController;
+  Timer? _autoCaptureTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _setupCameraController();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    cameraController?.dispose();
+    _autoCaptureTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    if (cameraController == null ||
-        cameraController?.value.isInitialized == false) {
+    if (cameraController == null || !cameraController!.value.isInitialized) {
       return;
     }
+
     if (state == AppLifecycleState.inactive) {
       cameraController?.dispose();
+      _autoCaptureTimer?.cancel();
     } else if (state == AppLifecycleState.resumed) {
       _setupCameraController();
     }
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _setupCameraController();
+  Future<void> _setupCameraController() async {
+    List<CameraDescription> _camera = await availableCameras();
+    if (_camera.isNotEmpty) {
+      cameraController = CameraController(_camera.last, ResolutionPreset.high);
+      await cameraController?.initialize();
+      if (!mounted) return;
+
+      setState(() {});
+
+      _autoCaptureTimer = Timer.periodic(Duration(minutes: 1), (_) {
+        _autoCaptureImage();
+      });
+    }
+  }
+
+  Future<void> _autoCaptureImage() async {
+    if (cameraController != null &&
+        cameraController!.value.isInitialized &&
+        !cameraController!.value.isTakingPicture) {
+      try {
+        final XFile file = await cameraController!.takePicture();
+        await GallerySaver.saveImage(file.path);
+        print("Photo taken and saved automatically.");
+      } catch (e) {
+        print("Auto-capture failed: $e");
+      }
+    }
   }
 
   @override
@@ -55,37 +96,12 @@ class _HomepageState extends State<CameraWork> with WidgetsBindingObserver {
           IconButton(
             onPressed: () async {
               XFile picture = await cameraController!.takePicture();
-              Gal.putImage(picture.path);
+              await GallerySaver.saveImage(picture.path);
             },
             icon: const Icon(Icons.camera, color: Colors.red, size: 100),
           ),
         ],
       ),
     );
-    // return SafeArea(child: CameraPreview(cameraController!));
-  }
-
-  Future<void> _setupCameraController() async {
-    List<CameraDescription> _camera = await availableCameras();
-    if (_camera.isNotEmpty) {
-      setState(() {
-        cameras = _camera;
-        cameraController = CameraController(
-          _camera.last,
-          ResolutionPreset.high,
-        );
-      });
-      cameraController
-          ?.initialize()
-          .then((_) {
-            if (!mounted) {
-              return;
-            }
-            setState(() {});
-          })
-          .catchError((Object e) {
-            print(e);
-          });
-    }
   }
 }
